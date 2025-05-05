@@ -70,34 +70,58 @@ def add_recipe():
 
 @recipes.route('/recipe/<recipe_id>')
 def recipe_detail(recipe_id):
-    # Try to get recipe from TheMealDB first
-    response = requests.get(f'https://www.themealdb.com/api/json/v1/1/lookup.php?i={recipe_id}')
-    recipe = response.json()['meals'][0] if response.status_code == 200 else None
-    
-    # If not found in TheMealDB, try our database
-    if not recipe:
+    recipe = None
+    source = 'api'
+
+    # Attempt to fetch recipe from TheMealDB API
+    try:
+        response = requests.get(f'https://www.themealdb.com/api/json/v1/1/lookup.php?i={recipe_id}')
+        if response.status_code == 200:
+            meals = response.json().get('meals')
+            if isinstance(meals, list) and meals:
+                meal = meals[0]
+                recipe = {
+                    'id': meal.get('idMeal'),
+                    'name': meal.get('strMeal'),
+                    'category': meal.get('strCategory'),
+                    'area': meal.get('strArea'),
+                    'instructions': meal.get('strInstructions'),
+                    'image': meal.get('strMealThumb'),
+                    'ingredients': [
+                        {
+                            'ingredient': meal.get(f'strIngredient{i}'),
+                            'measure': meal.get(f'strMeasure{i}')
+                        }
+                        for i in range(1, 21)
+                        if meal.get(f'strIngredient{i}') and meal.get(f'strIngredient{i}').strip()
+                    ]
+                }
+            else:
+                raise ValueError("No valid API result")
+    except Exception:
+        # If API call fails or recipe not found, check local DB
         try:
-            recipe = mongo.db.recipes.find_one({"_id": ObjectId(recipe_id)})
-            if recipe:
-                # Convert ObjectId to string for template
-                recipe['idMeal'] = str(recipe['_id'])
-                recipe['strMeal'] = recipe['title']
-                recipe['strCategory'] = recipe['category']
-                recipe['strArea'] = recipe['area']
-                recipe['strMealThumb'] = recipe.get('image_url', '')
-                recipe['strInstructions'] = recipe['instructions']
-                
-                # Format ingredients for display
-                for i, ing in enumerate(recipe['ingredients'], 1):
-                    recipe[f'strIngredient{i}'] = ing['ingredient']
-                    recipe[f'strMeasure{i}'] = ing['measure']
-        except:
-            recipe = None
-    
+            db_recipe = mongo.db.recipes.find_one({"_id": ObjectId(recipe_id)})
+            if db_recipe:
+                recipe = {
+                    'id': str(db_recipe['_id']),
+                    'name': db_recipe['title'],
+                    'category': db_recipe['category'],
+                    'area': db_recipe['area'],
+                    'instructions': db_recipe['instructions'],
+                    'image': db_recipe.get('image_url', ''),
+                    'ingredients': db_recipe.get('ingredients', [])
+                }
+                source = 'local'
+        except Exception:
+            pass  # ObjectId conversion or DB lookup failed
+
     if recipe:
         reviews = list(mongo.db.reviews.find({"recipe_id": recipe_id}))
         form = CommentForm()
-        return render_template('recipe_detail.html', recipe=recipe, reviews=reviews, form=form)
+        return render_template('recipe_detail.html', recipe=recipe, reviews=reviews, form=form, source=source)
+
+    flash("Recipe not found.", "danger")
     return redirect(url_for('recipes.home'))
 
 @recipes.route('/recipe/<recipe_id>/review', methods=['POST'])
