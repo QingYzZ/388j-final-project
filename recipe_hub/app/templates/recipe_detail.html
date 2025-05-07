@@ -53,7 +53,7 @@
             </div>
             <div class="card-body">
                 {% if current_user.is_authenticated %}
-                    <form method="POST" action="{{ url_for('recipes.add_review', recipe_id=recipe.idMeal if recipe.idMeal else recipe._id) }}">
+				<form method="POST" action="{{ url_for('recipes.add_review', recipe_id=recipe.idMeal if recipe.idMeal else recipe.id) }}">
                         {{ form.hidden_tag() }}
                         <div class="mb-3">
                             {{ form.rating.label(class="form-label") }}
